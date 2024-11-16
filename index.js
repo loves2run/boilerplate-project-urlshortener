@@ -30,6 +30,8 @@ const bodyParser = require('body-parser');
 const dns = require('dns');
 const crypto = require('crypto');
 const URL = require('./models/url.js');
+const { URL: NodeURL } = require('url');
+const { hostname } = require('os');
 
 
 
@@ -55,55 +57,74 @@ mongoose.connect(process.env.MONGODB_URI);
 
 
 //routing
-app.post('/api/shorturl', bodyParser.urlencoded({extended: false }), async (req, res) => {
+app.post('/api/shorturl', bodyParser.urlencoded({extended: false}), async (req, res) => {
   const { url } = req.body;
+  console.log('Received URL:', url);
 
   if (!url) {
-    console.log('Error: URL not provided');
-    return res.status(400).json({ error: 'invalid url' });
+    return res.json({ error: 'invalid url' });
   }
   
   try {
-    //verify url is valid with dns.lookup
-    
+    // First validate URL format
+    let hostname;
+    try {
+      hostname = new NodeURL(url).hostname;
+      console.log('Hostname extracted:', hostname);
+    } catch(err) {
+      console.log('Invalid URL format:', err);
+      return res.json({ error: 'invalid url' });
+    }
 
+    // Wrap DNS lookup in a promise to properly await it
+    try {
+      await new Promise((resolve, reject) => {
+        dns.lookup(hostname, (err) => {
+          if (err) {
+            console.log('DNS lookup failed:', err);
+            reject(err);
+          } else {
+            console.log('DNS lookup successful');
+            resolve();
+          }
+        });
+      });
+    } catch(err) {
+      return res.json({ error: 'invalid url' });
+    }
 
-      //check to see if url already exists in db
-     const existingUrl = await URL.findOne({ original_url: url });
-    
-     //if short_Url does exist, return the existingUrl in json format
-     if (existingUrl) {
+    // If we get here, URL is valid and domain exists
+    const existingUrl = await URL.findOne({ original_url: url });
+    if (existingUrl) {
       console.log(`A short_url already exists for ${existingUrl.original_url}.`);
       return res.json({
         original_url: existingUrl.original_url,
         short_url: existingUrl.short_url
       });
-    };
+    }
 
-      //generate a random 5-digit short numeric URL code if it does not exist
-      let short_url;
-      do {
-        short_url = Math.floor(10000 + Math.random() * 90000);
-      } while (await URL.findOne({ short_url }));
+    let short_url;
+    do {
+      short_url = Math.floor(10000 + Math.random() * 90000);
+    } while (await URL.findOne({ short_url }));
 
-    //create a new URL docuemnt and save it
     const newUrl = new URL({
       original_url: url,
       short_url: short_url
     });
 
-    await newUrl.save(); //push data to MongoDB
-
-    //respond with the shortened URL info
+    await newUrl.save();
     res.json({
       original_url: url,
       short_url: short_url
     });
+
   } catch (error) {
-    console.error(error);
+    console.error('Database error:', error);
     res.status(500).json({ error: 'Error saving to database' });
   }
 });
+  
 
 app.get('/api/shorturl/:short_url', async (req, res) => {
   const { short_url } = req.params;
