@@ -47,15 +47,6 @@ mongoose.connect(process.env.MONGODB_URI);
   };
 
 
-//function to generate shortened URL
-// function generateShortUrl(url) {
-//   return crypto.createHash('md5').update(url).digest('hex').slice(0, 8);
-// }
-
-//mock db to store the urls in
-// const urlDatabase = {};
-
-
 //routing
 app.post('/api/shorturl', bodyParser.urlencoded({extended: false}), async (req, res) => {
   const { url } = req.body;
@@ -66,6 +57,12 @@ app.post('/api/shorturl', bodyParser.urlencoded({extended: false}), async (req, 
   }
   
   try {
+    const urlRegex = /^https?:\/\//;
+    if (!urlRegex.test(url)) {
+      console.log('URL failed regex validation');
+      return res.json({ error: 'invalid url' });
+    }
+
     // First validate URL format
     let hostname;
     try {
